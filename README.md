@@ -27,9 +27,9 @@ OpenCode detects a `jj` repository when the plugin loads for a location. If a re
 
 ## Workspaces
 
-OpenCode-managed workspaces are created without Git colocation. Only workspaces created by this plugin are listed as managed worktrees or removed by it. Removal requires force when the working copy, its history, or ignored files have changed. The default parent of a new workspace follows `jj workspace add`; an explicitly selected starting ref is passed to `--revision`.
+New OpenCode-managed workspaces are Git-colocated so OpenCode can associate them with an original Git-colocated checkout. Existing non-colocated workspaces are not converted. Only workspaces created by this plugin are listed as managed worktrees or removed by it; the original workspace is also listed as a root. Removal requires force when the working copy, its history, or ignored files have changed. The default parent of a new workspace follows `jj workspace add`; an explicitly selected starting ref is passed to `--revision`.
 
-OpenCode's project discovery still uses its built-in Git and Mercurial detectors; native Jujutsu project discovery is not provided by this plugin. When `trunk()` resolves to `root()`, branch diffs can cover the entire repository.
+OpenCode's project discovery still uses its built-in Git and Mercurial detectors; native Jujutsu project discovery is not provided by this plugin. Project association may therefore still fail when the original workspace is not Git-colocated. When `trunk()` resolves to `root()`, branch diffs can cover the entire repository.
 
 ## Development
 
