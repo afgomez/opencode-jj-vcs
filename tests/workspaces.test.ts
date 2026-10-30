@@ -7,7 +7,7 @@ import { cleanupRepositories, repository } from "./helpers"
 
 afterEach(cleanupRepositories)
 
-test("manages workspaces and protects modified files", async () => {
+test("creates and lists colocated workspaces from either direction", async () => {
   const { directory, root } = repository()
   const worktree = createWorkspaceStrategy()
   const context = { signal: new AbortController().signal }
@@ -18,12 +18,20 @@ test("manages workspaces and protects modified files", async () => {
   const reverse = await worktree.list(target, context)
   expect(reverse).toContainEqual({ directory: root, type: "root" })
   expect(reverse).toContainEqual({ directory: target, type: "worktree" })
+})
+
+test("protects modified files unless removal is forced", async () => {
+  const { directory, root } = repository()
+  const worktree = createWorkspaceStrategy()
+  const context = { signal: new AbortController().signal }
+  const target = join(directory, "workspace")
+  await worktree.create({ sourceDirectory: root, directory: target }, context)
   writeFileSync(join(target, "changed"), "data\n")
   await expect(worktree.remove({ directory: target, force: false }, context)).rejects.toThrow("Workspace has changes")
   await worktree.remove({ directory: target, force: true }, context)
 })
 
-test("protects ignored files and removes pristine workspaces", async () => {
+test("protects ignored files unless removal is forced", async () => {
   const { directory, root } = repository()
   writeFileSync(join(root, ".gitignore"), "ignored\n")
   execFileSync("jj", ["new"], { cwd: root, stdio: "pipe" })
@@ -35,6 +43,12 @@ test("protects ignored files and removes pristine workspaces", async () => {
   await expect(worktree.remove({ directory: target, force: false }, context)).rejects.toThrow("ignored or untracked")
   expect(existsSync(join(target, "ignored"))).toBe(true)
   await worktree.remove({ directory: target, force: true }, context)
+})
+
+test("removes pristine workspaces without force", async () => {
+  const { directory, root } = repository()
+  const worktree = createWorkspaceStrategy()
+  const context = { signal: new AbortController().signal }
   const clean = join(directory, "clean")
   await worktree.create({ sourceDirectory: root, directory: clean }, context)
   await worktree.remove({ directory: clean, force: false }, context)
@@ -81,7 +95,7 @@ test.each(["empty directory", "ignored file", "ignored symlink"])("protects nest
   expect(readFileSync(external, "utf8")).toBe("preserve me\n")
 })
 
-test("protects changed workspace history and unmanaged workspaces", async () => {
+test("protects changed workspace history unless removal is forced", async () => {
   const { directory, root } = repository()
   const worktree = createWorkspaceStrategy()
   const context = { signal: new AbortController().signal }
@@ -90,6 +104,12 @@ test("protects changed workspace history and unmanaged workspaces", async () => 
   execFileSync("jj", ["new"], { cwd: target, stdio: "pipe" })
   await expect(worktree.remove({ directory: target, force: false }, context)).rejects.toThrow("Workspace has changes")
   await worktree.remove({ directory: target, force: true }, context)
+})
+
+test("rejects unmanaged workspace removal even with force", async () => {
+  const { directory, root } = repository()
+  const worktree = createWorkspaceStrategy()
+  const context = { signal: new AbortController().signal }
   const unmanaged = join(directory, "unmanaged")
   execFileSync("jj", ["workspace", "add", "--no-colocate", unmanaged], { cwd: root, stdio: "pipe" })
   expect((await worktree.list(root, context)).some((entry) => entry.directory === unmanaged)).toBe(false)

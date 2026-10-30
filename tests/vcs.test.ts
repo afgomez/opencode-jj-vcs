@@ -45,7 +45,7 @@ test("reports bookmarks and uses configured trunk for branch diffs", async () =>
   expect(diffs[0].patch).toContain("diff --git")
 })
 
-test("handles unusual filenames and respects the diff byte budget", async () => {
+test("handles unusual filenames", async () => {
   const { root } = repository()
   const filename = 'a "quoted"\nfile'
   writeFileSync(join(root, filename), "hello\n")
@@ -56,5 +56,24 @@ test("handles unusual filenames and respects the diff byte budget", async () => 
   const diffs = await vcs.diff(input, context)
   expect(diffs.map((diff) => diff.file)).toEqual([filename])
   expect(diffs[0].additions).toBe(1)
-  expect(await vcs.diff({ ...input, maxOutputBytes: 1 }, context)).toEqual([])
+})
+
+test("respects the cumulative diff byte budget", async () => {
+  const { root } = repository()
+  writeFileSync(join(root, "a.txt"), "first\n")
+  writeFileSync(join(root, "b.txt"), "second\n")
+  const vcs = createVcsProvider(root)
+  const scope = { directory: root, worktree: root, canonical: root }
+  const context = { signal: new AbortController().signal }
+  const input = { ...scope, mode: "working" as const, context: 3, maxOutputBytes: 10000 }
+  const diffs = await vcs.diff(input, context)
+  expect(diffs.map((diff) => diff.file)).toEqual(["a.txt", "b.txt"])
+  const sizes = diffs.map((diff) => Buffer.byteLength(diff.patch))
+  const totalBytes = sizes.reduce((sum, size) => sum + size, 0)
+  const singlePatchBudget = Math.max(...sizes)
+  expect(await vcs.diff({ ...input, maxOutputBytes: totalBytes }, context)).toEqual(diffs)
+  expect(await vcs.diff({ ...input, maxOutputBytes: singlePatchBudget }, context)).toEqual([diffs[0]])
+  for (const maxOutputBytes of [0, sizes[0] - 1]) {
+    expect(await vcs.diff({ ...input, maxOutputBytes }, context)).toEqual([])
+  }
 })
