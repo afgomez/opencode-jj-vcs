@@ -27,15 +27,21 @@ export function createWorkspaceStrategy(): WorktreeDefinition {
     }
   }
 
+  const sourceOriginRoot = async (sourceRoot: string, signal: AbortSignal, entries?: Awaited<ReturnType<typeof workspaceList>>) => {
+    const marker = await readMarker(sourceRoot)
+    if (!marker) return sourceRoot
+    const workspaces = entries ?? await workspaceList(sourceRoot, signal)
+    const source = workspaces.find((workspace) => workspace.root === sourceRoot)
+    if (!source || marker.name !== source.name) return sourceRoot
+    return marker.originRoot ?? workspaces.find((workspace) => workspace.name === "default")?.root ?? sourceRoot
+  }
+
   return {
     id: "jj",
     create: async (input, { signal }) => {
       const name = `opencode-${randomUUID()}`
       const sourceRoot = (await runJj(input.sourceDirectory, ["root"], signal)).trim()
-      const sourceMarker = await readMarker(sourceRoot)
-      const originRoot = sourceMarker?.originRoot ?? (sourceMarker
-        ? (await workspaceList(input.sourceDirectory, signal)).find((workspace) => workspace.name === "default")?.root
-        : undefined) ?? sourceRoot
+      const originRoot = await sourceOriginRoot(sourceRoot, signal)
       const args = ["workspace", "add", "--colocate", "--name", name]
       if (input.branch) args.push("--revision", input.branch)
       args.push("--", input.directory)
@@ -47,10 +53,7 @@ export function createWorkspaceStrategy(): WorktreeDefinition {
     list: async (sourceDirectory, { signal }) => {
       const sourceRoot = (await runJj(sourceDirectory, ["root"], signal)).trim()
       const entries = await workspaceList(sourceDirectory, signal)
-      const source = entries.find((workspace) => workspace.root === sourceRoot)
-      const marker = source && await readMarker(sourceRoot)
-      const isManaged = source && marker && marker.name === source.name
-      const originRoot = isManaged ? (marker.originRoot ?? entries.find((workspace) => workspace.name === "default")?.root) : sourceRoot
+      const originRoot = await sourceOriginRoot(sourceRoot, signal, entries)
       const result: { directory: string; type: "root" | "worktree" }[] = []
       for (const workspace of entries) {
         if (!workspace.root) continue

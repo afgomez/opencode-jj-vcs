@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test"
 import { execFileSync } from "node:child_process"
-import { existsSync, writeFileSync } from "node:fs"
+import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { createWorkspaceStrategy } from "../src/workspaces"
 import { cleanupRepositories, repository } from "./helpers"
@@ -70,6 +70,44 @@ test("lists the default workspace from an older non-colocated managed workspace"
   const child = join(directory, "child")
   await worktree.create({ sourceDirectory: legacy, directory: child }, context)
   expect(await worktree.list(child, context)).toContainEqual({ directory: root, type: "root" })
+  await worktree.remove({ directory: child, force: false }, context)
+})
+
+test("preserves the original non-default workspace when nesting managed workspaces", async () => {
+  const { directory, root } = repository()
+  const worktree = createWorkspaceStrategy()
+  const context = { signal: new AbortController().signal }
+  const source = join(directory, "source")
+  execFileSync("jj", ["workspace", "add", "--colocate", "--name", "source", source], { cwd: root, stdio: "pipe" })
+  const parent = join(directory, "parent")
+  await worktree.create({ sourceDirectory: source, directory: parent }, context)
+  const child = join(directory, "child")
+  await worktree.create({ sourceDirectory: parent, directory: child }, context)
+  const entries = await worktree.list(child, context)
+  expect(entries).toContainEqual({ directory: source, type: "root" })
+  expect(entries).toContainEqual({ directory: parent, type: "worktree" })
+  expect(entries).toContainEqual({ directory: child, type: "worktree" })
+  expect(entries.some((entry) => entry.directory === root)).toBe(false)
+  await worktree.remove({ directory: child, force: false }, context)
+  await worktree.remove({ directory: parent, force: false }, context)
+})
+
+test("does not inherit an origin root from a marker owned by another workspace", async () => {
+  const { directory, root } = repository()
+  const worktree = createWorkspaceStrategy()
+  const context = { signal: new AbortController().signal }
+  const source = join(directory, "source")
+  await worktree.create({ sourceDirectory: root, directory: source }, context)
+  const markerPath = join(source, ".jj", "opencode-workspace.json")
+  const marker = JSON.parse(readFileSync(markerPath, "utf8"))
+  writeFileSync(markerPath, JSON.stringify({ ...marker, name: "another-workspace" }))
+  expect(await worktree.list(source, context)).toEqual([{ directory: source, type: "root" }])
+  const child = join(directory, "child")
+  await worktree.create({ sourceDirectory: source, directory: child }, context)
+  const entries = await worktree.list(child, context)
+  expect(entries).toContainEqual({ directory: source, type: "root" })
+  expect(entries).toContainEqual({ directory: child, type: "worktree" })
+  expect(entries.some((entry) => entry.directory === root)).toBe(false)
   await worktree.remove({ directory: child, force: false }, context)
 })
 
