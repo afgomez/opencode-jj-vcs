@@ -9,7 +9,7 @@
   "files": ["src", "README.md"],
   "scripts": {
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc"
   },
   "dependencies": {
     "@opencode/plugin": "2.2.0"
