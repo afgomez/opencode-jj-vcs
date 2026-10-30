@@ -147,20 +147,29 @@ test("refuses removal through direct symlinks and symlinked ancestors even with 
   expect(await worktree.list(root, context)).toContainEqual({ directory: target, type: "worktree" })
 })
 
-test("lists the default workspace from an older non-colocated managed workspace", async () => {
+test("supports historical non-colocated managed workspaces without converting them", async () => {
   const { directory, root } = repository()
   const worktree = createWorkspaceStrategy()
   const context = { signal: new AbortController().signal }
   const legacy = join(directory, "legacy")
   execFileSync("jj", ["workspace", "add", "--no-colocate", "--name", "legacy", legacy], { cwd: root, stdio: "pipe" })
-  writeFileSync(join(legacy, ".jj", "opencode-workspace.json"), JSON.stringify({ version: 1, name: "legacy" }))
+  const initial: unknown = JSON.parse(execFileSync("jj", [
+    "log", "-r", "@", "--no-graph", "-T",
+    'json({"empty" => empty, "description" => description, "change" => change_id, "parents" => parents.map(|p| p.commit_id())})',
+  ], { cwd: legacy, encoding: "utf8" }))
+  writeFileSync(join(legacy, ".jj", "opencode-workspace.json"), JSON.stringify({ version: 1, name: "legacy", initial }))
   const entries = await worktree.list(legacy, context)
   expect(entries).toContainEqual({ directory: root, type: "root" })
   expect(entries).toContainEqual({ directory: legacy, type: "worktree" })
   const child = join(directory, "child")
   await worktree.create({ sourceDirectory: legacy, directory: child }, context)
+  expect(existsSync(join(legacy, ".git"))).toBe(false)
+  expect(existsSync(join(child, ".git"))).toBe(true)
   expect(await worktree.list(child, context)).toContainEqual({ directory: root, type: "root" })
   await worktree.remove({ directory: child, force: false }, context)
+  expect(existsSync(child)).toBe(false)
+  await worktree.remove({ directory: legacy, force: false }, context)
+  expect(existsSync(legacy)).toBe(false)
 })
 
 test("preserves the original non-default workspace when nesting managed workspaces", async () => {
@@ -261,7 +270,7 @@ test("persists compact baselines and accepts older initial state fields", async 
   expect(existsSync(target)).toBe(false)
 })
 
-test("requires force to remove a valid legacy marker without initial state", async () => {
+test("requires force when a structurally valid marker lacks an initial baseline", async () => {
   const { directory, root } = repository()
   const worktree = createWorkspaceStrategy()
   const context = { signal: new AbortController().signal }
