@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test"
 import { execFileSync } from "node:child_process"
 import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+import { Worktree } from "@opencode/plugin"
 import { createWorkspaceStrategy } from "../src/workspaces"
 import { cleanupRepositories, repository } from "./helpers"
 
@@ -27,7 +28,9 @@ test("protects modified files unless removal is forced", async () => {
   const target = join(directory, "workspace")
   await worktree.create({ sourceDirectory: root, directory: target }, context)
   writeFileSync(join(target, "changed"), "data\n")
-  await expect(worktree.remove({ directory: target, force: false }, context)).rejects.toThrow("Workspace has changes")
+  const error = await worktree.remove({ directory: target, force: false }, context).catch((error: unknown) => error)
+  expect(error).toBeInstanceOf(Worktree.OperationError)
+  expect(error).toMatchObject({ forceRequired: true })
   await worktree.remove({ directory: target, force: true }, context)
 })
 
@@ -40,7 +43,9 @@ test("protects ignored files unless removal is forced", async () => {
   const target = join(directory, "workspace")
   await worktree.create({ sourceDirectory: root, directory: target }, context)
   writeFileSync(join(target, "ignored"), "important")
-  await expect(worktree.remove({ directory: target, force: false }, context)).rejects.toThrow("ignored or untracked")
+  const error = await worktree.remove({ directory: target, force: false }, context).catch((error: unknown) => error)
+  expect(error).toBeInstanceOf(Worktree.OperationError)
+  expect(error).toMatchObject({ forceRequired: true, message: expect.stringContaining("ignored or untracked") })
   expect(existsSync(join(target, "ignored"))).toBe(true)
   await worktree.remove({ directory: target, force: true }, context)
 })
@@ -88,7 +93,9 @@ test.each(["empty directory", "ignored file", "ignored symlink"])("protects nest
   if (kind === "empty directory") mkdirSync(extra)
   else if (kind === "ignored symlink") symlinkSync(external, extra)
   else writeFileSync(extra, "important\n")
-  await expect(worktree.remove({ directory: target, force: false }, context)).rejects.toThrow("ignored or untracked")
+  const error = await worktree.remove({ directory: target, force: false }, context).catch((error: unknown) => error)
+  expect(error).toBeInstanceOf(Worktree.OperationError)
+  expect(error).toMatchObject({ forceRequired: true, message: expect.stringContaining("ignored or untracked") })
   expect(existsSync(extra)).toBe(true)
   await worktree.remove({ directory: target, force: true }, context)
   expect(existsSync(target)).toBe(false)
@@ -102,7 +109,9 @@ test("protects changed workspace history unless removal is forced", async () => 
   const target = join(directory, "workspace")
   await worktree.create({ sourceDirectory: root, directory: target }, context)
   execFileSync("jj", ["new"], { cwd: target, stdio: "pipe" })
-  await expect(worktree.remove({ directory: target, force: false }, context)).rejects.toThrow("Workspace has changes")
+  const error = await worktree.remove({ directory: target, force: false }, context).catch((error: unknown) => error)
+  expect(error).toBeInstanceOf(Worktree.OperationError)
+  expect(error).toMatchObject({ forceRequired: true })
   await worktree.remove({ directory: target, force: true }, context)
 })
 
@@ -262,7 +271,9 @@ test("requires force to remove a valid legacy marker without initial state", asy
   const marker: Record<string, unknown> = JSON.parse(readFileSync(markerPath, "utf8"))
   writeFileSync(markerPath, JSON.stringify({ version: 1, name: marker.name }))
   expect(await worktree.list(root, context)).toContainEqual({ directory: target, type: "worktree" })
-  await expect(worktree.remove({ directory: target, force: false }, context)).rejects.toThrow("Workspace has changes")
+  const error = await worktree.remove({ directory: target, force: false }, context).catch((error: unknown) => error)
+  expect(error).toBeInstanceOf(Worktree.OperationError)
+  expect(error).toMatchObject({ forceRequired: true })
   expect(existsSync(target)).toBe(true)
   await worktree.remove({ directory: target, force: true }, context)
   expect(existsSync(target)).toBe(false)
