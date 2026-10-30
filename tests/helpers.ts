@@ -15,13 +15,17 @@ export function cleanupRepositories() {
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
 }
 
+export function runJj(cwd: string, ...args: string[]) {
+  return execFileSync("jj", args, { cwd, encoding: "utf8", stdio: "pipe" }).trim()
+}
+
 export function repository(colocated = true) {
   const directory = mkdtempSync(join(realpathSync(tmpdir()), "opencode-jj-test-"))
   directories.push(directory)
   const root = join(directory, "repo")
   mkdirSync(root)
-  execFileSync("jj", ["git", "init", colocated ? "--colocate" : "--no-colocate", root], { stdio: "pipe" })
-  return { directory, root }
+  runJj(directory, "git", "init", colocated ? "--colocate" : "--no-colocate", root)
+  return { directory, root, jj: (...args: string[]) => runJj(root, ...args) }
 }
 
 export async function setup(directory: string) {

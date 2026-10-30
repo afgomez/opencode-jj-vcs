@@ -1,10 +1,9 @@
 import { afterEach, expect, test } from "bun:test"
-import { execFileSync } from "node:child_process"
 import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { Worktree } from "@opencode/plugin"
 import { createWorkspaceStrategy } from "../src/workspaces"
-import { cleanupRepositories, repository } from "./helpers"
+import { cleanupRepositories, repository, runJj } from "./helpers"
 
 afterEach(cleanupRepositories)
 
@@ -35,9 +34,9 @@ test("protects modified files unless removal is forced", async () => {
 })
 
 test("protects ignored files unless removal is forced", async () => {
-  const { directory, root } = repository()
+  const { directory, root, jj } = repository()
   writeFileSync(join(root, ".gitignore"), "ignored\n")
-  execFileSync("jj", ["new"], { cwd: root, stdio: "pipe" })
+  jj("new")
   const worktree = createWorkspaceStrategy()
   const context = { signal: new AbortController().signal }
   const target = join(directory, "workspace")
@@ -61,12 +60,12 @@ test("removes pristine workspaces without force", async () => {
 })
 
 test("removes pristine workspaces with nested tracked files and symlinks", async () => {
-  const { directory, root } = repository()
+  const { directory, root, jj } = repository()
   const nested = join(root, "nested dir", "deep")
   mkdirSync(nested, { recursive: true })
   writeFileSync(join(nested, "tracked"), "base\n")
   symlinkSync("tracked", join(nested, "tracked-link"))
-  execFileSync("jj", ["new"], { cwd: root, stdio: "pipe" })
+  jj("new")
   const worktree = createWorkspaceStrategy()
   const context = { signal: new AbortController().signal }
   const target = join(directory, "workspace")
@@ -77,12 +76,12 @@ test("removes pristine workspaces with nested tracked files and symlinks", async
 })
 
 test.each(["empty directory", "ignored file", "ignored symlink"])("protects nested %s beside tracked files", async (kind) => {
-  const { directory, root } = repository()
+  const { directory, root, jj } = repository()
   const nested = join("nested dir", "deep")
   mkdirSync(join(root, nested), { recursive: true })
   writeFileSync(join(root, nested, "tracked"), "base\n")
   writeFileSync(join(root, ".gitignore"), "ignored\n")
-  execFileSync("jj", ["new"], { cwd: root, stdio: "pipe" })
+  jj("new")
   const worktree = createWorkspaceStrategy()
   const context = { signal: new AbortController().signal }
   const target = join(directory, "workspace")
@@ -108,7 +107,7 @@ test("protects changed workspace history unless removal is forced", async () => 
   const context = { signal: new AbortController().signal }
   const target = join(directory, "workspace")
   await worktree.create({ sourceDirectory: root, directory: target }, context)
-  execFileSync("jj", ["new"], { cwd: target, stdio: "pipe" })
+  runJj(target, "new")
   const error = await worktree.remove({ directory: target, force: false }, context).catch((error: unknown) => error)
   expect(error).toBeInstanceOf(Worktree.OperationError)
   expect(error).toMatchObject({ forceRequired: true })
@@ -116,11 +115,11 @@ test("protects changed workspace history unless removal is forced", async () => 
 })
 
 test("rejects unmanaged workspace removal even with force", async () => {
-  const { directory, root } = repository()
+  const { directory, root, jj } = repository()
   const worktree = createWorkspaceStrategy()
   const context = { signal: new AbortController().signal }
   const unmanaged = join(directory, "unmanaged")
-  execFileSync("jj", ["workspace", "add", "--no-colocate", unmanaged], { cwd: root, stdio: "pipe" })
+  jj("workspace", "add", "--no-colocate", unmanaged)
   expect((await worktree.list(root, context)).some((entry) => entry.directory === unmanaged)).toBe(false)
   await expect(worktree.remove({ directory: unmanaged, force: true }, context)).rejects.toThrow("not created by OpenCode")
   expect(existsSync(unmanaged)).toBe(true)
@@ -148,15 +147,15 @@ test("refuses removal through direct symlinks and symlinked ancestors even with 
 })
 
 test("supports historical non-colocated managed workspaces without converting them", async () => {
-  const { directory, root } = repository()
+  const { directory, root, jj } = repository()
   const worktree = createWorkspaceStrategy()
   const context = { signal: new AbortController().signal }
   const legacy = join(directory, "legacy")
-  execFileSync("jj", ["workspace", "add", "--no-colocate", "--name", "legacy", legacy], { cwd: root, stdio: "pipe" })
-  const initial: unknown = JSON.parse(execFileSync("jj", [
+  jj("workspace", "add", "--no-colocate", "--name", "legacy", legacy)
+  const initial: unknown = JSON.parse(runJj(legacy,
     "log", "-r", "@", "--no-graph", "-T",
     'json({"empty" => empty, "description" => description, "change" => change_id, "parents" => parents.map(|p| p.commit_id())})',
-  ], { cwd: legacy, encoding: "utf8" }))
+  ))
   writeFileSync(join(legacy, ".jj", "opencode-workspace.json"), JSON.stringify({ version: 1, name: "legacy", initial }))
   const entries = await worktree.list(legacy, context)
   expect(entries).toContainEqual({ directory: root, type: "root" })
@@ -173,11 +172,11 @@ test("supports historical non-colocated managed workspaces without converting th
 })
 
 test("preserves the original non-default workspace when nesting managed workspaces", async () => {
-  const { directory, root } = repository()
+  const { directory, root, jj } = repository()
   const worktree = createWorkspaceStrategy()
   const context = { signal: new AbortController().signal }
   const source = join(directory, "source")
-  execFileSync("jj", ["workspace", "add", "--colocate", "--name", "source", source], { cwd: root, stdio: "pipe" })
+  jj("workspace", "add", "--colocate", "--name", "source", source)
   const parent = join(directory, "parent")
   await worktree.create({ sourceDirectory: source, directory: parent }, context)
   const child = join(directory, "child")
