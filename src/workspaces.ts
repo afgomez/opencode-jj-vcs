@@ -8,21 +8,25 @@ import { runJj } from "./jj"
 const workspaceMarker = "opencode-workspace.json"
 
 type WorkingCopyState = { empty: boolean; description: string; change: string; parents: string[] }
+type WorkingCopyBaseline = Pick<WorkingCopyState, "change" | "parents">
 type WorkspaceMarker = {
   version: 1
   name: string
   originRoot?: string
-  initial?: WorkingCopyState
+  initial?: WorkingCopyBaseline
   colocated?: boolean
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value)
 
+const isWorkingCopyBaseline = (value: unknown): value is WorkingCopyBaseline => isRecord(value)
+  && typeof value.change === "string" && value.change.length > 0
+  && Array.isArray(value.parents) && value.parents.every((parent: unknown) => typeof parent === "string" && parent.length > 0)
+
 const isWorkingCopyState = (value: unknown): value is WorkingCopyState => isRecord(value)
   && typeof value.empty === "boolean"
   && typeof value.description === "string"
-  && typeof value.change === "string" && value.change.length > 0
-  && Array.isArray(value.parents) && value.parents.every((parent: unknown) => typeof parent === "string" && parent.length > 0)
+  && isWorkingCopyBaseline(value)
 
 export function createWorkspaceStrategy(): WorktreeDefinition {
   const workspaceList = async (cwd: string, signal: AbortSignal) => {
@@ -44,9 +48,15 @@ export function createWorkspaceStrategy(): WorktreeDefinition {
       const marker: unknown = JSON.parse(await readFile(join(directory, ".jj", workspaceMarker), "utf8"))
       if (!isRecord(marker) || marker.version !== 1 || typeof marker.name !== "string" || !marker.name) return undefined
       if (marker.originRoot !== undefined && (typeof marker.originRoot !== "string" || !isAbsolute(marker.originRoot))) return undefined
-      if (marker.initial !== undefined && !isWorkingCopyState(marker.initial)) return undefined
+      if (marker.initial !== undefined) {
+        if (!isRecord(marker.initial)) return undefined
+        if (marker.initial.empty !== undefined && typeof marker.initial.empty !== "boolean") return undefined
+        if (marker.initial.description !== undefined && typeof marker.initial.description !== "string") return undefined
+        if (!isWorkingCopyBaseline(marker.initial)) return undefined
+      }
       if (marker.colocated !== undefined && typeof marker.colocated !== "boolean") return undefined
-      return { version: 1, name: marker.name, originRoot: marker.originRoot, initial: marker.initial, colocated: marker.colocated }
+      const initial = marker.initial === undefined ? undefined : { change: marker.initial.change, parents: marker.initial.parents }
+      return { version: 1, name: marker.name, originRoot: marker.originRoot, initial, colocated: marker.colocated }
     } catch {
       return undefined
     }
@@ -71,8 +81,8 @@ export function createWorkspaceStrategy(): WorktreeDefinition {
       if (input.branch) args.push("--revision", input.branch)
       args.push("--", input.directory)
       await runJj(input.sourceDirectory, args, signal)
-      const initial = await workingCopy(input.directory, signal)
-      const marker: WorkspaceMarker = { version: 1, name, initial, originRoot, colocated: true }
+      const { change, parents } = await workingCopy(input.directory, signal)
+      const marker: WorkspaceMarker = { version: 1, name, initial: { change, parents }, originRoot, colocated: true }
       await writeFile(join(input.directory, ".jj", workspaceMarker), JSON.stringify(marker), { flag: "wx" })
       return { directory: input.directory }
     },

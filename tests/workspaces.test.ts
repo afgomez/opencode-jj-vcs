@@ -156,6 +156,21 @@ test("rejects malformed markers even when they name the current workspace", asyn
   await worktree.remove({ directory: child, force: false }, context)
 })
 
+test("persists compact baselines and accepts older initial state fields", async () => {
+  const { directory, root } = repository()
+  const worktree = createWorkspaceStrategy()
+  const context = { signal: new AbortController().signal }
+  const target = join(directory, "workspace")
+  await worktree.create({ sourceDirectory: root, directory: target }, context)
+  const markerPath = join(target, ".jj", "opencode-workspace.json")
+  const marker: { initial: { change: string; parents: string[] } } = JSON.parse(readFileSync(markerPath, "utf8"))
+  expect(marker.initial).toEqual({ change: expect.any(String), parents: [expect.any(String)] })
+  writeFileSync(markerPath, JSON.stringify({ ...marker, initial: { ...marker.initial, empty: true, description: "" } }))
+  expect(await worktree.list(root, context)).toContainEqual({ directory: target, type: "worktree" })
+  await worktree.remove({ directory: target, force: false }, context)
+  expect(existsSync(target)).toBe(false)
+})
+
 test("requires force to remove a valid legacy marker without initial state", async () => {
   const { directory, root } = repository()
   const worktree = createWorkspaceStrategy()
