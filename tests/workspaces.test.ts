@@ -2,17 +2,18 @@ import { afterEach, expect, test } from "bun:test"
 import { execFileSync } from "node:child_process"
 import { existsSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { cleanupRepositories, repository, setup } from "./helpers"
+import { createWorkspaceStrategy } from "../src/workspaces"
+import { cleanupRepositories, repository } from "./helpers"
 
 afterEach(cleanupRepositories)
 
 test("manages workspaces and protects modified files", async () => {
   const { directory, root } = repository()
-  const { worktree } = await setup(root)
+  const worktree = createWorkspaceStrategy()
   const context = { signal: new AbortController().signal }
   const target = join(directory, "workspace")
   await worktree.create({ sourceDirectory: root, directory: target }, context)
-  expect((await worktree.list(root, context)).some((entry: any) => entry.directory === target)).toBe(true)
+  expect((await worktree.list(root, context)).some((entry) => entry.directory === target)).toBe(true)
   expect(existsSync(join(target, ".git"))).toBe(true)
   const reverse = await worktree.list(target, context)
   expect(reverse).toContainEqual({ directory: root, type: "root" })
@@ -26,7 +27,7 @@ test("protects ignored files and removes pristine workspaces", async () => {
   const { directory, root } = repository()
   writeFileSync(join(root, ".gitignore"), "ignored\n")
   execFileSync("jj", ["new"], { cwd: root, stdio: "pipe" })
-  const { worktree } = await setup(root)
+  const worktree = createWorkspaceStrategy()
   const context = { signal: new AbortController().signal }
   const target = join(directory, "workspace")
   await worktree.create({ sourceDirectory: root, directory: target }, context)
@@ -42,7 +43,7 @@ test("protects ignored files and removes pristine workspaces", async () => {
 
 test("protects changed workspace history and unmanaged workspaces", async () => {
   const { directory, root } = repository()
-  const { worktree } = await setup(root)
+  const worktree = createWorkspaceStrategy()
   const context = { signal: new AbortController().signal }
   const target = join(directory, "workspace")
   await worktree.create({ sourceDirectory: root, directory: target }, context)
@@ -51,14 +52,14 @@ test("protects changed workspace history and unmanaged workspaces", async () => 
   await worktree.remove({ directory: target, force: true }, context)
   const unmanaged = join(directory, "unmanaged")
   execFileSync("jj", ["workspace", "add", "--no-colocate", unmanaged], { cwd: root, stdio: "pipe" })
-  expect((await worktree.list(root, context)).some((entry: any) => entry.directory === unmanaged)).toBe(false)
+  expect((await worktree.list(root, context)).some((entry) => entry.directory === unmanaged)).toBe(false)
   await expect(worktree.remove({ directory: unmanaged, force: true }, context)).rejects.toThrow("not created by OpenCode")
   expect(existsSync(unmanaged)).toBe(true)
 })
 
 test("lists the default workspace from an older non-colocated managed workspace", async () => {
   const { directory, root } = repository()
-  const { worktree } = await setup(root)
+  const worktree = createWorkspaceStrategy()
   const context = { signal: new AbortController().signal }
   const legacy = join(directory, "legacy")
   execFileSync("jj", ["workspace", "add", "--no-colocate", "--name", "legacy", legacy], { cwd: root, stdio: "pipe" })
@@ -74,7 +75,7 @@ test("lists the default workspace from an older non-colocated managed workspace"
 
 test("creates and removes a colocated workspace from a non-colocated repository", async () => {
   const { directory, root } = repository(false)
-  const { worktree } = await setup(root)
+  const worktree = createWorkspaceStrategy()
   const context = { signal: new AbortController().signal }
   const target = join(directory, "workspace")
   await worktree.create({ sourceDirectory: root, directory: target }, context)
