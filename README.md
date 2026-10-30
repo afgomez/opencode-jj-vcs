@@ -2,7 +2,7 @@
 
 An OpenCode V2 plugin that detects Jujutsu (`jj`) repositories and provides:
 
-- Instructions encouraging the agent to use `jj` and Git-format diffs.
+- Instructions encouraging the agent to use `jj` and Git-format diffs, prefer `jj commit` over `jj describe`, and leave a fresh, empty working copy after committing or amending.
 - A Jujutsu VCS provider for status, diffs, and bookmarks. Branch diffs use `trunk()` by default.
 - An OpenCode worktree strategy backed by Jujutsu workspaces.
 
