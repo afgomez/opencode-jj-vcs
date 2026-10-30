@@ -111,6 +111,67 @@ test("does not inherit an origin root from a marker owned by another workspace",
   await worktree.remove({ directory: child, force: false }, context)
 })
 
+test("rejects malformed markers even when they name the current workspace", async () => {
+  const { directory, root } = repository()
+  const worktree = createWorkspaceStrategy()
+  const context = { signal: new AbortController().signal }
+  const target = join(directory, "workspace")
+  await worktree.create({ sourceDirectory: root, directory: target }, context)
+  const markerPath = join(target, ".jj", "opencode-workspace.json")
+  const marker: Record<string, unknown> = JSON.parse(readFileSync(markerPath, "utf8"))
+  const initial = { empty: true, description: "", change: "change", parents: ["parent"] }
+  const invalidMarkers = [
+    "{", "null", "[]",
+    ...[
+      { version: 2 },
+      { name: 1 },
+      { name: "" },
+      { originRoot: 1 },
+      { originRoot: "relative/path" },
+      { originRoot: null },
+      { colocated: "true" },
+      { colocated: null },
+      { initial: null },
+      { initial: [] },
+      { initial: { ...initial, empty: "true" } },
+      { initial: { ...initial, description: false } },
+      { initial: { ...initial, change: "" } },
+      { initial: { ...initial, change: 1 } },
+      { initial: { ...initial, parents: "parent" } },
+      { initial: { ...initial, parents: [1] } },
+      { initial: {} },
+    ].map((fields) => JSON.stringify({ ...marker, ...fields })),
+  ]
+  for (const contents of invalidMarkers) {
+    writeFileSync(markerPath, contents)
+    expect(await worktree.list(root, context), contents).toEqual([{ directory: root, type: "root" }])
+    for (const force of [false, true]) {
+      await expect(worktree.remove({ directory: target, force }, context), contents).rejects.toThrow("not created by OpenCode")
+    }
+    expect(existsSync(target), contents).toBe(true)
+  }
+  const child = join(directory, "child")
+  await worktree.create({ sourceDirectory: target, directory: child }, context)
+  expect(await worktree.list(child, context)).toContainEqual({ directory: target, type: "root" })
+  await worktree.remove({ directory: child, force: false }, context)
+})
+
+test("requires force to remove a valid legacy marker without initial state", async () => {
+  const { directory, root } = repository()
+  const worktree = createWorkspaceStrategy()
+  const context = { signal: new AbortController().signal }
+  const target = join(directory, "workspace")
+  await worktree.create({ sourceDirectory: root, directory: target }, context)
+  const markerPath = join(target, ".jj", "opencode-workspace.json")
+  const marker: Record<string, unknown> = JSON.parse(readFileSync(markerPath, "utf8"))
+  writeFileSync(markerPath, JSON.stringify({ version: 1, name: marker.name }))
+  expect(await worktree.list(root, context)).toContainEqual({ directory: target, type: "worktree" })
+  await expect(worktree.remove({ directory: target, force: false }, context)).rejects.toThrow("Workspace has changes")
+  expect(existsSync(target)).toBe(true)
+  await worktree.remove({ directory: target, force: true }, context)
+  expect(existsSync(target)).toBe(false)
+})
+
 test("creates and removes a colocated workspace from a non-colocated repository", async () => {
   const { directory, root } = repository(false)
   const worktree = createWorkspaceStrategy()

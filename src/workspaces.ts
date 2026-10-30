@@ -1,11 +1,28 @@
 import { randomUUID } from "node:crypto"
 import { lstat, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises"
-import { join, relative, resolve, sep } from "node:path"
+import { isAbsolute, join, relative, resolve, sep } from "node:path"
 import { Worktree } from "@opencode/plugin"
 import type { WorktreeDefinition } from "@opencode/plugin/promise/worktree"
 import { runJj } from "./jj"
 
 const workspaceMarker = "opencode-workspace.json"
+
+type WorkingCopyState = { empty: boolean; description: string; change: string; parents: string[] }
+type WorkspaceMarker = {
+  version: 1
+  name: string
+  originRoot?: string
+  initial?: WorkingCopyState
+  colocated?: boolean
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value)
+
+const isWorkingCopyState = (value: unknown): value is WorkingCopyState => isRecord(value)
+  && typeof value.empty === "boolean"
+  && typeof value.description === "string"
+  && typeof value.change === "string" && value.change.length > 0
+  && Array.isArray(value.parents) && value.parents.every((parent: unknown) => typeof parent === "string" && parent.length > 0)
 
 export function createWorkspaceStrategy(): WorktreeDefinition {
   const workspaceList = async (cwd: string, signal: AbortSignal) => {
@@ -13,15 +30,23 @@ export function createWorkspaceStrategy(): WorktreeDefinition {
     return output.split("\n").filter(Boolean).map((line) => JSON.parse(line) as { name: string; root: string | null })
   }
 
-  const workingCopy = async (cwd: string, signal: AbortSignal) => JSON.parse(await runJj(cwd, [
-    "log", "-r", "@", "--no-graph", "-T",
-    'json({"empty" => empty, "description" => description, "change" => change_id, "parents" => parents.map(|p| p.commit_id())})',
-  ], signal)) as { empty: boolean; description: string; change: string; parents: string[] }
+  const workingCopy = async (cwd: string, signal: AbortSignal): Promise<WorkingCopyState> => {
+    const state: unknown = JSON.parse(await runJj(cwd, [
+      "log", "-r", "@", "--no-graph", "-T",
+      'json({"empty" => empty, "description" => description, "change" => change_id, "parents" => parents.map(|p| p.commit_id())})',
+    ], signal))
+    if (!isWorkingCopyState(state)) throw new Error("Invalid jj working-copy state")
+    return state
+  }
 
-  const readMarker = async (directory: string) => {
+  const readMarker = async (directory: string): Promise<WorkspaceMarker | undefined> => {
     try {
-      const marker = JSON.parse(await readFile(join(directory, ".jj", workspaceMarker), "utf8"))
-      return marker.version === 1 ? marker : undefined
+      const marker: unknown = JSON.parse(await readFile(join(directory, ".jj", workspaceMarker), "utf8"))
+      if (!isRecord(marker) || marker.version !== 1 || typeof marker.name !== "string" || !marker.name) return undefined
+      if (marker.originRoot !== undefined && (typeof marker.originRoot !== "string" || !isAbsolute(marker.originRoot))) return undefined
+      if (marker.initial !== undefined && !isWorkingCopyState(marker.initial)) return undefined
+      if (marker.colocated !== undefined && typeof marker.colocated !== "boolean") return undefined
+      return { version: 1, name: marker.name, originRoot: marker.originRoot, initial: marker.initial, colocated: marker.colocated }
     } catch {
       return undefined
     }
@@ -47,7 +72,8 @@ export function createWorkspaceStrategy(): WorktreeDefinition {
       args.push("--", input.directory)
       await runJj(input.sourceDirectory, args, signal)
       const initial = await workingCopy(input.directory, signal)
-      await writeFile(join(input.directory, ".jj", workspaceMarker), JSON.stringify({ version: 1, name, initial, originRoot, colocated: true }), { flag: "wx" })
+      const marker: WorkspaceMarker = { version: 1, name, initial, originRoot, colocated: true }
+      await writeFile(join(input.directory, ".jj", workspaceMarker), JSON.stringify(marker), { flag: "wx" })
       return { directory: input.directory }
     },
     list: async (sourceDirectory, { signal }) => {
