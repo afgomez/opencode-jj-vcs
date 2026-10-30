@@ -2,6 +2,11 @@ import { execFileSync } from "node:child_process"
 import { mkdtempSync, mkdirSync, realpathSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import type { Plugin } from "@opencode/plugin"
+import type { ModelHooks } from "@opencode/plugin/promise/registration"
+import type { SessionContext, SessionHooks } from "@opencode/plugin/promise/session"
+import type { VcsDefinition } from "@opencode/plugin/promise/vcs"
+import type { WorktreeDefinition } from "@opencode/plugin/promise/worktree"
 import plugin from "../src/index"
 
 const directories: string[] = []
@@ -20,15 +25,36 @@ export function repository(colocated = true) {
 }
 
 export async function setup(directory: string) {
-  let vcs: any
-  let worktree: any
-  let context: any
+  let vcs: VcsDefinition | undefined
+  let worktree: WorktreeDefinition | undefined
+  let context: ((event: SessionContext) => Promise<void> | void) | undefined
   let selected: string | undefined
-  await plugin.setup({
+  const registration = { dispose: async () => {} }
+  const vcsTransform: Plugin.Context["vcs"]["transform"] = async (fn) => {
+    fn({
+      add: (value) => { vcs = value },
+      default: {
+        get: () => selected,
+        set: (value) => { selected = value },
+      },
+    })
+    return registration
+  }
+  const worktreeTransform: Plugin.Context["worktree"]["transform"] = async (fn) => {
+    fn({ add: (value) => { worktree = value } })
+    return registration
+  }
+  const hook: ModelHooks<Pick<SessionHooks, "context">> = async (_name, fn) => {
+    context = fn
+    return registration
+  }
+  const ctx = {
     location: { directory },
-    vcs: { transform: async (fn: any) => fn({ add: (value: any) => { vcs = value }, default: { set: (value: string) => { selected = value } } }) },
-    worktree: { transform: async (fn: any) => fn({ add: (value: any) => { worktree = value } }) },
-    session: { hook: async (_name: string, fn: any) => { context = fn } },
-  } as any)
+    vcs: { transform: vcsTransform },
+    worktree: { transform: worktreeTransform },
+    session: { hook },
+  }
+  // Only the capabilities used by this plugin are implemented by the test harness.
+  await plugin.setup(ctx as Plugin.Context)
   return { vcs, worktree, context, selected }
 }
