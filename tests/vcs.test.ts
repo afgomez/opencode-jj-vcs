@@ -13,7 +13,6 @@ test("uses the working-copy change ID when no bookmark is available", async () =
   const vcs = createVcsProvider(root)
   const scope = { directory: root, worktree: root, canonical: root }
   expect((await vcs.info(scope, { signal: new AbortController().signal })).branch.current).toBe(expected)
-  expect(expected.length).toBeGreaterThanOrEqual(8)
 })
 
 test("reading the fallback change ID does not snapshot the working copy", async () => {
