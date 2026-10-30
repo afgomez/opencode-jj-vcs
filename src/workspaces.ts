@@ -119,13 +119,19 @@ export function createWorkspaceStrategy(): WorktreeDefinition {
           throw new Worktree.OperationError({ message: "Workspace has changes or a description", forceRequired: true })
         }
         const tracked = new Set((await runJj(directory, ["file", "list", "-T", 'json(path) ++ "\\n"'], signal)).split("\n").filter(Boolean).map((line) => JSON.parse(line) as string))
+        const trackedDirectories = new Set<string>()
+        for (const file of tracked) {
+          for (let index = file.indexOf("/"); index !== -1; index = file.indexOf("/", index + 1)) {
+            trackedDirectories.add(file.slice(0, index))
+          }
+        }
         const visit = async (dir: string): Promise<boolean> => {
           for (const entry of await readdir(dir, { withFileTypes: true })) {
             const path = join(dir, entry.name)
             const name = relative(directory, path).split(sep).join("/")
             if (name === ".jj" || (name === ".git" && marker.colocated === true && entry.isFile())) continue
             if (entry.isDirectory()) {
-              if (![...tracked].some((file) => file.startsWith(`${name}/`)) || await visit(path)) return true
+              if (!trackedDirectories.has(name) || await visit(path)) return true
             } else if (!tracked.has(name)) return true
           }
           return false

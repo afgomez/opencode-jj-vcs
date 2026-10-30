@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test"
 import { execFileSync } from "node:child_process"
-import { existsSync, readFileSync, symlinkSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { createWorkspaceStrategy } from "../src/workspaces"
 import { cleanupRepositories, repository } from "./helpers"
@@ -39,6 +39,46 @@ test("protects ignored files and removes pristine workspaces", async () => {
   await worktree.create({ sourceDirectory: root, directory: clean }, context)
   await worktree.remove({ directory: clean, force: false }, context)
   expect(existsSync(clean)).toBe(false)
+})
+
+test("removes pristine workspaces with nested tracked files and symlinks", async () => {
+  const { directory, root } = repository()
+  const nested = join(root, "nested dir", "deep")
+  mkdirSync(nested, { recursive: true })
+  writeFileSync(join(nested, "tracked"), "base\n")
+  symlinkSync("tracked", join(nested, "tracked-link"))
+  execFileSync("jj", ["new"], { cwd: root, stdio: "pipe" })
+  const worktree = createWorkspaceStrategy()
+  const context = { signal: new AbortController().signal }
+  const target = join(directory, "workspace")
+  await worktree.create({ sourceDirectory: root, directory: target }, context)
+  expect(readFileSync(join(target, "nested dir", "deep", "tracked-link"), "utf8")).toBe("base\n")
+  await worktree.remove({ directory: target, force: false }, context)
+  expect(existsSync(target)).toBe(false)
+})
+
+test.each(["empty directory", "ignored file", "ignored symlink"])("protects nested %s beside tracked files", async (kind) => {
+  const { directory, root } = repository()
+  const nested = join("nested dir", "deep")
+  mkdirSync(join(root, nested), { recursive: true })
+  writeFileSync(join(root, nested, "tracked"), "base\n")
+  writeFileSync(join(root, ".gitignore"), "ignored\n")
+  execFileSync("jj", ["new"], { cwd: root, stdio: "pipe" })
+  const worktree = createWorkspaceStrategy()
+  const context = { signal: new AbortController().signal }
+  const target = join(directory, "workspace")
+  await worktree.create({ sourceDirectory: root, directory: target }, context)
+  const external = join(directory, "important")
+  writeFileSync(external, "preserve me\n")
+  const extra = join(target, nested, kind === "empty directory" ? "empty" : "ignored")
+  if (kind === "empty directory") mkdirSync(extra)
+  else if (kind === "ignored symlink") symlinkSync(external, extra)
+  else writeFileSync(extra, "important\n")
+  await expect(worktree.remove({ directory: target, force: false }, context)).rejects.toThrow("ignored or untracked")
+  expect(existsSync(extra)).toBe(true)
+  await worktree.remove({ directory: target, force: true }, context)
+  expect(existsSync(target)).toBe(false)
+  expect(readFileSync(external, "utf8")).toBe("preserve me\n")
 })
 
 test("protects changed workspace history and unmanaged workspaces", async () => {
