@@ -1,23 +1,9 @@
-import { mock } from "bun:test"
 import { execFileSync } from "node:child_process"
 import { mkdtempSync, mkdirSync, realpathSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import plugin from "../src/index"
 
-class OperationError extends Error {
-  forceRequired: boolean
-  constructor(input: { message: string; forceRequired: boolean }) {
-    super(input.message)
-    this.forceRequired = input.forceRequired
-  }
-}
-
-mock.module("@opencode/plugin", () => ({
-  Plugin: { define: (plugin: unknown) => plugin },
-  Worktree: { OperationError },
-}))
-
-const { default: plugin } = await import("../src/index")
 const directories: string[] = []
 
 export function cleanupRepositories() {
