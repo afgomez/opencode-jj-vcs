@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test"
 import { execFileSync } from "node:child_process"
-import { existsSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, readFileSync, symlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { createWorkspaceStrategy } from "../src/workspaces"
 import { cleanupRepositories, repository } from "./helpers"
@@ -55,6 +55,27 @@ test("protects changed workspace history and unmanaged workspaces", async () => 
   expect((await worktree.list(root, context)).some((entry) => entry.directory === unmanaged)).toBe(false)
   await expect(worktree.remove({ directory: unmanaged, force: true }, context)).rejects.toThrow("not created by OpenCode")
   expect(existsSync(unmanaged)).toBe(true)
+})
+
+test("refuses removal through direct symlinks and symlinked ancestors even with force", async () => {
+  const { directory, root } = repository()
+  const worktree = createWorkspaceStrategy()
+  const context = { signal: new AbortController().signal }
+  const target = join(directory, "workspace")
+  await worktree.create({ sourceDirectory: root, directory: target }, context)
+  writeFileSync(join(target, "important"), "preserve me\n")
+  const direct = join(directory, "workspace-link")
+  symlinkSync(target, direct, "dir")
+  const ancestor = join(directory, "directory-link")
+  symlinkSync(directory, ancestor, "dir")
+  for (const path of [direct, join(ancestor, "workspace")]) {
+    for (const force of [false, true]) {
+      await expect(worktree.remove({ directory: path, force }, context)).rejects.toThrow("through a symlink")
+      expect(readFileSync(join(target, "important"), "utf8")).toBe("preserve me\n")
+      expect(existsSync(path)).toBe(true)
+    }
+  }
+  expect(await worktree.list(root, context)).toContainEqual({ directory: target, type: "worktree" })
 })
 
 test("lists the default workspace from an older non-colocated managed workspace", async () => {

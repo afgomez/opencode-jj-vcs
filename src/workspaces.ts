@@ -104,7 +104,7 @@ export function createWorkspaceStrategy(): WorktreeDefinition {
     remove: async (input, { signal }) => {
       const directory = resolve(input.directory)
       const stat = await lstat(directory)
-      if (!stat.isDirectory() || stat.isSymbolicLink() || await realpath(directory) !== directory) {
+      if (!stat.isDirectory() || await realpath(directory) !== directory) {
         throw new Error("Refusing to remove a workspace through a symlink or non-directory")
       }
       const workspace = (await workspaceList(directory, signal)).find((entry) => entry.root === directory)
