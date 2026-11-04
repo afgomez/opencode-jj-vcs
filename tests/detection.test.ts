@@ -30,4 +30,28 @@ test("registers jj providers and injects the expected instructions", async () =>
   if (!plugin.context) throw new Error("Context hook was not registered")
   await plugin.context(event)
   expect(event.system).toEqual([{ type: "text", text: instructions }])
+  expect(event.options).toEqual({})
+})
+
+test("adds the instructions to the Claude Agent harness system prompt", async () => {
+  const { root } = repository()
+  const plugin = await setup(root)
+  if (!plugin.context) throw new Error("Context hook was not registered")
+  const event = (claudeCodeInstructions: string): SessionContext => ({
+    sessionID: Session.ID.create(),
+    agent: Agent.ID.make("test"),
+    model: Model.Ref.parse("claude-agent/claude-opus-5-5"),
+    system: [],
+    messages: [],
+    options: { claudeCodeInstructions },
+    tools: {},
+  })
+
+  const existing = event("Project instructions")
+  await plugin.context(existing)
+  expect(existing.options.claudeCodeInstructions).toBe(`Project instructions\n${instructions}`)
+
+  const empty = event("")
+  await plugin.context(empty)
+  expect(empty.options.claudeCodeInstructions).toBe(instructions)
 })
