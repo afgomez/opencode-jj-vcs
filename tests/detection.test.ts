@@ -29,6 +29,7 @@ test("registers jj providers and injects the expected instructions", async () =>
   }
   if (!plugin.context) throw new Error("Context hook was not registered")
   await plugin.context(event)
+  expect(instructions).toStartWith("This directory is in a Jujutsu (jj) repository.")
   expect(event.system).toEqual([{ type: "text", text: instructions }])
   expect(event.options).toEqual({})
 })
