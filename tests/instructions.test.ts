@@ -15,3 +15,11 @@ test("requires verification without sacrificing unrelated changes", () => {
   expect(instructions).toContain("Never discard unrelated changes or commit them without authorization")
   expect(instructions).toContain("preserve them and report the blocker")
 })
+
+test("links stacked PRs on GitHub", () => {
+  expect(instructions).toContain("link them with gh stack link so GitHub recognizes the stack")
+  expect(instructions).toContain("in stack order, from bottom to top")
+  expect(instructions).toContain("gh stack link cannot set PR titles or descriptions")
+  expect(instructions).toContain("push the bookmarks with jj git push and create the PRs with gh pr create first")
+  expect(instructions).toContain("Do not use other gh stack commands")
+})
